@@ -1,0 +1,26 @@
+apiVersion: mlops.seldon.io/v1alpha1
+kind: Server
+metadata:
+  name: triton
+  namespace: seldon-mesh
+spec:
+  replicas: 0  
+  podSpec:
+    containers:
+    - name: agent
+      resources:
+        requests:
+          cpu: 50m
+          memory: 128Mi
+        limits:
+          cpu: 500m
+          memory: 1Gi
+    - name: triton
+      resources:
+        requests:
+          cpu: 100m
+          memory: 128Mi
+        limits:
+          cpu: "1"
+          memory: 1Gi
+  serverConfig: triton

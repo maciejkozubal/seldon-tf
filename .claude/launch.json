@@ -1,0 +1,29 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "kafka",
+      "runtimeExecutable": "kubectl",
+      "runtimeArgs": ["apply", "-f", "core-2/kafka.yaml", "-f", "core-2/kafka-nodepool.yaml", "-n", "seldon-mesh"],
+      "port": 9092
+    },
+    {
+      "name": "mlserver",
+      "runtimeExecutable": "kubectl",
+      "runtimeArgs": ["apply", "-f", "core-2/mlserver.yaml", "-n", "seldon-mesh"],
+      "port": 8080
+    },
+    {
+      "name": "triton",
+      "runtimeExecutable": "kubectl",
+      "runtimeArgs": ["apply", "-f", "core-2/triton.yaml", "-n", "seldon-mesh"],
+      "port": 8000
+    },
+    {
+      "name": "seldon-pvs",
+      "runtimeExecutable": "kubectl",
+      "runtimeArgs": ["apply", "-f", "core-2/seldon-pvs.yaml"],
+      "port": 0
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+apiVersion: mlops.seldon.io/v1alpha1
+kind: Server
+metadata:
+  name: mlserver
+  namespace: seldon-mesh
+spec:
+  podSpec:
+    containers:
+    - name: agent
+      resources:
+        requests:
+          cpu: 50m
+          memory: 128Mi
+        limits:
+          cpu: 500m
+          memory: 1Gi
+    - name: mlserver
+      resources:
+        requests:
+          cpu: 50m
+          memory: 128Mi
+        limits:
+          cpu: 500m
+          memory: 1Gi
+  serverConfig: mlserver

@@ -1,0 +1,58 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: whoami
+  labels:
+    app: whoami
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: whoami
+  template:
+    metadata:
+      labels:
+        app: whoami
+    spec:
+      containers:
+      - name: whoami
+        image: traefik/whoami
+        env:
+        - name: WHOAMI_NAME
+          value: SELDON-TEST-WHOAMI
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: whoami
+spec:
+  type: LoadBalancer
+  selector:
+    app: whoami
+  ports:
+  - protocol: TCP
+    port: 8080
+    targetPort: 80
+
+---
+
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: whoami
+spec:
+  gateways:
+  - istio-system/seldon-gateway
+  hosts:
+  - '*'
+  http:
+  - match:
+    - uri:
+        prefix: /whoami
+    route:
+    - destination:
+        host: whoami
+        port:
+          number: 8080
