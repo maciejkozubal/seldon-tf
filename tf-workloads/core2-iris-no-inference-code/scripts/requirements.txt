@@ -1,0 +1,11 @@
+truefoundry
+scikit-learn==1.9.1
+xgboost==3.4.1
+joblib==1.6.0
+requests
+locust
+
+# Triton only: run these scripts with a Python <= 3.12 interpreter and numpy < 2,
+# because the model version records the logging interpreter's Python version and the
+# control plane rejects > 3.12 for Triton. See notebooks/iris_sklearn_triton.ipynb.
+# numpy<2

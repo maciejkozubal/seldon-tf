@@ -1,0 +1,6 @@
+# Data-scientist handoff folders and generated serving packages — both reproducible
+artifacts/
+*-svc/
+*.joblib
+loadtest-results/
+__pycache__/
