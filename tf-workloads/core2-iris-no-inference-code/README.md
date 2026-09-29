@@ -38,8 +38,8 @@ python scripts/teardown.py --name iris-sk-fastapi
 | `iris_sklearn_mlserver` | MLServer | 3.12 | 8080 |
 | `iris_xgboost_mlserver` | MLServer | 3.12 | 8080 |
 
-Hand-maintained, no generator. Cleanup cells are **live** — don't Run All on a deploy
-you want to keep.
+Hand-maintained, no generator. Cleanup cells are **live**, but only remove local files
+and images — service and model version are updated in place on re-run.
 
 ## Gotchas
 
