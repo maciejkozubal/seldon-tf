@@ -3,11 +3,11 @@
 import json
 from pathlib import Path
 
-TFY_HOST = "https://internal.devtest.truefoundry.tech"
-ML_REPO = "default"
-CLUSTER = "tfy-usea1-devtest"
+TFY_HOST = "https://platform-admin.live-demo.truefoundry.cloud"
+ML_REPO = "seldon-tf-iris"
+CLUSTER = "tfy-azure"
 WORKSPACE = "seldon-tf"
-DOMAIN = "tfy-usea1-ctl.devtest.truefoundry.tech"
+DOMAIN = "az-apps.live-demo.truefoundry.cloud"  # per-cluster: tfy-azure
 WS_FQN = f"{CLUSTER}:{WORKSPACE}"
 DOCKER_USER = "mkozubal"
 
