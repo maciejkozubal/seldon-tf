@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 TFY_HOST = "https://platform-admin.live-demo.truefoundry.cloud"
-ML_REPO = "seldon-tf-iris"
+ML_REPO = "cx-team"
 CLUSTER = "tfy-azure"
 WORKSPACE = "seldon-tf"
 DOMAIN = "az-apps.live-demo.truefoundry.cloud"  # per-cluster: tfy-azure

@@ -51,10 +51,11 @@ don't Run All on a deploy you want to keep. Model versions stay.
 - Triton `/v2/health/ready` lies → poll `/v2/models/<name>/ready`
 - payloads: FastAPI `{"input_0":[[...]]}` · Triton nested `data`, `input_0` · MLServer flat `data`, `predict`
 
-- tag is always `1`, so **delete the image before re-running** — local *and* Docker Hub.
-  A node that already pulled `:1` never re-pulls it (non-`latest` → `IfNotPresent`), so a
-  stale Hub copy gets served and `server.py` looks for the wrong model filename.
-  `teardown.py --purge-hub` does both, needs `$DOCKERHUB_PAT`
+- tag is always `1`. `docker build`/`docker push` overwrite it in place, locally and on
+  Hub, so **there is nothing to delete before re-running**. What deleting does *not* fix:
+  a node that already pulled `:1` never re-pulls it (non-`latest` → `IfNotPresent`), so a
+  redeploy can keep serving the old layer. The Service spec exposes no `imagePullPolicy`
+  — only `kustomize`. If a redeploy ever serves stale code, use a fresh tag
 - deleting a service 409s if a rollout never finished — cancel `last_deployment_id` first,
   **not** `.deployment.id`, which is the active version and isn't what's stuck
 
