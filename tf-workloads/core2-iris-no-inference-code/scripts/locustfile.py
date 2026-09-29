@@ -1,7 +1,7 @@
 """Load profile for the deployed iris service.
 
 Locust has no clean way to take custom CLI args, so the server flavour arrives as
-env vars — deploy_and_test.py sets them. Standalone use:
+env vars — loadtest.py sets them from build.json. Standalone use:
 
     TFY_SERVER=triton TFY_SVC=iris-sk-triton-svc \\
       locust -f scripts/locustfile.py --headless -u 10 -r 2 -t 30s \\

@@ -1,9 +1,9 @@
-"""Inverse of deploy_and_test.py — the `tear-down.sh` of this demo.
+"""Inverse of build.py + deploy.py — the `tear-down.sh` of this demo.
 
     python scripts/teardown.py --name iris-sk-fastapi
 
-Removes the service, the model version, the generated package folder and the local
-image. Artifact unlinking is asynchronous, so the model-version delete is retried.
+Removes the service, the model version, the generated package folder and local
+images. Artifact unlinking is asynchronous, so the model-version delete is retried.
 """
 
 import argparse
@@ -11,10 +11,27 @@ import subprocess
 import time
 from pathlib import Path
 
-WORKSPACE_FQN = "tfy-usea1-devtest:seldon-tf"
-TFY_HOST = "https://internal.devtest.truefoundry.tech"
-ML_REPO = "default"
-DOCKER_USER = "mkozubal"
+from common import DOCKER_USER, ML_REPO, WS_FQN as WORKSPACE_FQN
+
+
+def purge_hub(repo: str, tag: str):
+    """Reusing a tag means a node that already pulled it never re-pulls, so the Hub
+    copy has to go too or the next deploy can serve the old image."""
+    import os
+
+    import requests
+
+    pat = os.environ.get("DOCKERHUB_PAT")
+    if not pat:
+        print("  set $DOCKERHUB_PAT to purge Docker Hub")
+        return
+    jwt = requests.post("https://hub.docker.com/v2/users/login/",
+                        json={"username": DOCKER_USER, "password": pat},
+                        timeout=30).json()["token"]
+    r = requests.delete(f"https://hub.docker.com/v2/repositories/{repo}/tags/{tag}/",
+                        headers={"Authorization": f"JWT {jwt}"}, timeout=30)
+    print(f"  hub delete {repo}:{tag} -> {r.status_code}"
+          f"{' (gone)' if r.status_code == 204 else ''}")
 
 
 def main():
@@ -22,6 +39,9 @@ def main():
     ap.add_argument("--name", required=True, help="base name used at deploy time")
     ap.add_argument("--tag", default="1")
     ap.add_argument("--keep-model", action="store_true")
+    ap.add_argument("--keep-images", action="store_true")
+    ap.add_argument("--purge-hub", action="store_true",
+                    help="also delete the tag on Docker Hub (needs $DOCKERHUB_PAT)")
     ap.add_argument("--max-version", type=int, default=20,
                     help="highest model version to look for when cleaning up")
     args = ap.parse_args()
@@ -70,9 +90,15 @@ def main():
                     else:
                         time.sleep(10)
 
-    for cmd in (["docker", "rmi", "-f", f"{DOCKER_USER}/{svc}:{args.tag}"],):
-        subprocess.run(cmd, check=False, capture_output=True)
-    print(f"removed local image {DOCKER_USER}/{svc}:{args.tag}")
+    repo = f"{DOCKER_USER}/{svc}"
+    if not args.keep_images:
+        subprocess.run(["docker", "rmi", "-f", f"{repo}:{args.tag}"],
+                       check=False, capture_output=True)
+        print(f"removed local image {repo}:{args.tag}")
+        if args.purge_hub:
+            purge_hub(repo, args.tag)
+        else:
+            print(f"  Docker Hub still has {repo}:{args.tag} — --purge-hub to delete it")
 
     for base in (Path("artifacts"), Path(".")):
         pkg = base / svc

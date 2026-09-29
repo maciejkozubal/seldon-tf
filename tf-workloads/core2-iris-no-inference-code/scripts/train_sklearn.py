@@ -23,10 +23,15 @@ def main():
     X, y = load_iris(return_X_y=True)
     model = RandomForestClassifier(n_estimators=10).fit(X, y)
 
+    # Named after the case, not a generic model.joblib — readable in the registry
+    # and in the generated server.py. The deploy side reads it back off meta.json.
+    model_file = f"{args.out.name}.joblib"
+
     args.out.mkdir(parents=True, exist_ok=True)
-    joblib.dump(model, args.out / "model.joblib")
+    joblib.dump(model, args.out / model_file)
     (args.out / "sample_input.json").write_text(json.dumps(X[:5].tolist(), indent=2))
-    (args.out / "meta.json").write_text(json.dumps({"framework": "sklearn"}, indent=2))
+    (args.out / "meta.json").write_text(json.dumps(
+        {"framework": "sklearn", "model_file": model_file}, indent=2))
 
     print(f"handoff ready: {args.out}")
     print(f"  next: python scripts/deploy_and_test.py --artifact {args.out} --server fastapi")
