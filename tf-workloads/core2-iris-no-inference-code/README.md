@@ -38,8 +38,8 @@ python scripts/teardown.py --name iris-sk-fastapi
 | `iris_sklearn_mlserver` | MLServer | 3.12 | 8080 |
 | `iris_xgboost_mlserver` | MLServer | 3.12 | 8080 |
 
-Hand-maintained, no generator. Cleanup cells are **live**, but only remove local files
-and images — service and model version are updated in place on re-run.
+Hand-maintained, no generator. Cleanup cells are **live** — they delete the service, so
+don't Run All on a deploy you want to keep. Model versions stay.
 
 ## Gotchas
 
@@ -55,6 +55,8 @@ and images — service and model version are updated in place on re-run.
   A node that already pulled `:1` never re-pulls it (non-`latest` → `IfNotPresent`), so a
   stale Hub copy gets served and `server.py` looks for the wrong model filename.
   `teardown.py --purge-hub` does both, needs `$DOCKERHUB_PAT`
+- deleting a service 409s if a rollout never finished — cancel `last_deployment_id` first,
+  **not** `.deployment.id`, which is the active version and isn't what's stuck
 
 ## Open
 

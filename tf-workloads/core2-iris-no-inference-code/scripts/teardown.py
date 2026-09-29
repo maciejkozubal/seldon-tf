@@ -56,12 +56,15 @@ def main():
     for app in tfy.applications.list(workspace_fqn=WORKSPACE_FQN):
         if app.name == svc:
             # A rollout that never finished blocks the delete with 409
-            # DEPLOYMENT_IN_PROGRESS, so cancel it first.
+            # DEPLOYMENT_IN_PROGRESS, so cancel it first. Cancel last_deployment_id,
+            # not `.deployment.id` — the latter is the *active* version, which is
+            # terminal and not what is stuck.
             try:
                 tfy.applications.delete(id=app.id)
             except Exception:
                 tfy.applications.cancel_deployment(
-                    id=app.id, deployment_id=tfy.applications.get(id=app.id).data.deployment.id)
+                    id=app.id,
+                    deployment_id=tfy.applications.get(id=app.id).data.last_deployment_id)
                 tfy.applications.delete(id=app.id)
             print(f"deleted service {svc}")
             break
