@@ -33,7 +33,7 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
-CMD ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "{workers}"]
 """
 
 
@@ -71,7 +71,8 @@ def log_model(artifact: Path, name: str) -> str:
     return fqn
 
 
-def build_image(fqn: str, svc: str, runtime: str, image: str, workdir: Path):
+def build_image(fqn: str, svc: str, runtime: str, image: str, workdir: Path,
+                workers: int):
     pkg = workdir / svc
     shutil.rmtree(pkg, ignore_errors=True)
     run([sys.executable, "-m", "truefoundry.cli", "deploy-init", "model", "--name", svc,
@@ -80,13 +81,13 @@ def build_image(fqn: str, svc: str, runtime: str, image: str, workdir: Path):
     if runtime == "fastapi":
         # The FastAPI codegen ships no Dockerfile (its own deploy.py uses the
         # TrueFoundry builder); we build the image ourselves, so write one.
-        (pkg / "Dockerfile").write_text(
-            DOCKERFILE.format(py=f"{sys.version_info.major}.{sys.version_info.minor}"))
+        (pkg / "Dockerfile").write_text(DOCKERFILE.format(
+            py=f"{sys.version_info.major}.{sys.version_info.minor}", workers=workers))
     run(["docker", "build", "--platform", "linux/amd64", "-t", image, str(pkg)])
     run(["docker", "push", image])
 
 
-def deploy(svc: str, image: str, fqn: str, host: str) -> str:
+def deploy(svc: str, image: str, fqn: str, host: str, cpu: float, memory: int) -> str:
     from truefoundry.common.session import Session
     from truefoundry_sdk import TrueFoundry
 
@@ -98,8 +99,8 @@ def deploy(svc: str, image: str, fqn: str, host: str) -> str:
             "artifact_version_fqn": fqn, "download_path_env_variable": "MODEL_PATH"}]},
         "ports": [{"port": 8000, "protocol": "TCP", "expose": True,
                    "app_protocol": "http", "host": host}],
-        "resources": {"cpu_request": 0.5, "cpu_limit": 0.5,
-                      "memory_request": 1000, "memory_limit": 1000,
+        "resources": {"cpu_request": cpu, "cpu_limit": cpu,
+                      "memory_request": memory, "memory_limit": memory,
                       "ephemeral_storage_request": 2000, "ephemeral_storage_limit": 2000},
         "replicas": 1,
     })
@@ -136,9 +137,29 @@ def main():
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--artifact", type=Path, required=True)
     ap.add_argument("--runtime", choices=["fastapi", "triton"], required=True)
-    ap.add_argument("--tag", default="1")
+    ap.add_argument("--tag", help="default: the model version, so it bumps every run")
     ap.add_argument("--timeout", type=int, default=900)
+    # MLServer's parallel_workers equivalent. Each worker is a process with its
+    # own copy of the model, so give it cores and memory to match.
+    ap.add_argument("--workers", type=int, default=1, help="uvicorn workers, fastapi only")
+    ap.add_argument("--cpu", type=float, default=0.5)
+    ap.add_argument("--memory", type=int, default=1000, help="MiB")
+    # Escape hatch for a different tenant. Defaults above are live-demo; pass all
+    # four together, they are not independent.
+    for flag in ("tfy-host", "ml-repo", "ws-fqn", "domain", "docker-user"):
+        ap.add_argument(f"--{flag}", help=f"override {flag.replace('-', '_').upper()}")
     args = ap.parse_args()
+
+    for flag in ("tfy_host", "ml_repo", "ws_fqn", "domain", "docker_user"):
+        if getattr(args, flag):
+            globals()[flag.upper()] = getattr(args, flag)
+
+    from truefoundry.common.session import Session
+
+    if (logged_in := Session.new().tfy_host.rstrip("/")) != TFY_HOST.rstrip("/"):
+        # --relogin: a plain `tfy login` only prompts when a session already exists.
+        raise SystemExit(f"logged in to {logged_in}, not {TFY_HOST}\n"
+                         f"  tfy login --host {TFY_HOST} --relogin")
 
     if args.runtime == "triton" and sys.version_info >= (3, 13):
         raise SystemExit("Triton needs a model logged from Python <= 3.12. Re-run with:\n"
@@ -148,27 +169,38 @@ def main():
     if not (artifact / "meta.json").is_file():
         raise SystemExit(f"{artifact} is not a handoff folder — run train.py first")
 
+    if args.workers > 1 and args.runtime != "fastapi":
+        raise SystemExit("--workers is fastapi only; Triton has its own instance count")
+    if args.workers > args.cpu:
+        print(f"note: {args.workers} workers on {args.cpu} cpu — they will contend")
+
     name = f"{artifact.name}-{args.runtime}"
-    svc = f"{name}-svc"
-    image = f"{DOCKER_USER}/{svc}:{args.tag}"
-    host = f"{svc}-seldon-tf-8000.{DOMAIN}"
+    # Workers get their own service, so 1w and 4w can be load-tested side by side.
+    svc = f"{name}-svc" if args.workers == 1 else f"{name}-{args.workers}w-svc"
+    host = f"{svc}-{WS_FQN.split(':')[-1]}-8000.{DOMAIN}"
 
     fqn = log_model(artifact, name)
-    build_image(fqn, svc, args.runtime, image, artifact.parent)
-    print(f"\ndeployed {svc} ({deploy(svc, image, fqn, host)})")
+    # Tag = model version. A reused tag is never re-pulled by a node that already
+    # has it (non-latest => IfNotPresent), so it would keep serving the old build.
+    image = f"{DOCKER_USER}/{svc}:{args.tag or fqn.rsplit(':', 1)[-1]}"
+    build_image(fqn, svc, args.runtime, image, artifact.parent, args.workers)
+    print(f"\ndeployed {svc} "
+          f"({deploy(svc, image, fqn, host, args.cpu, args.memory)})")
     wait_and_smoke(svc, args.runtime, host,
                    json.loads((artifact / "sample_input.json").read_text()), args.timeout)
 
-    # Per-runtime filename: the same artifact can be live on FastAPI and Triton at once.
-    (artifact / f"deployed-{args.runtime}.json").write_text(json.dumps(
+    # One file per variant: fastapi, fastapi-4w and triton can all be live at once.
+    variant = svc[len(artifact.name) + 1:-len("-svc")]
+    (artifact / f"deployed-{variant}.json").write_text(json.dumps(
         {"svc": svc, "runtime": args.runtime, "host": host, "image": image,
-         "fqn": fqn, "tfy_host": TFY_HOST, "ml_repo": ML_REPO}, indent=2) + "\n")
+         "fqn": fqn, "workers": args.workers, "cpu": args.cpu,
+         "tfy_host": TFY_HOST, "ml_repo": ML_REPO, "ws_fqn": WS_FQN},
+        indent=2) + "\n")
     print(f"\nlive: https://{host}"
           f"{'/infer' if args.runtime == 'fastapi' else f'/v2/models/{svc}/infer'}")
-    print(f"  load test: python scripts/loadtest.py --artifact {args.artifact}"
-          f" --runtime {args.runtime}")
+    print(f"  load test: python scripts/loadtest.py --artifact {args.artifact}")
     print(f"  teardown:  python scripts/teardown.py --artifact {args.artifact}"
-          f" --runtime {args.runtime}")
+          f" --runtime {variant}")
 
 
 if __name__ == "__main__":

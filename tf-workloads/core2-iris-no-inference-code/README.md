@@ -1,12 +1,16 @@
-# Iris on TrueFoundry — no inference code
+# ML Model deployment on TrueFoundry without inference code
 
-No hand-written `predict`. `tfy deploy-init` generates the server from the registered
-model; you build and push the image, TrueFoundry never builds.
-Tenant `platform-admin.live-demo.truefoundry.cloud`, ML repo `cx-team`.
+- No hand-written `predict`, `tfy deploy-init` auto generates the server from the registered
+model
+- You build and push the image, TrueFoundry never builds
+- Run from this folder, run `tfy login` + `docker login`
+- Tenant `platform-admin.live-demo.truefoundry.cloud`, ML repo `cx-team`
 
-Run from this folder. No env vars — `tfy login` + `docker login`.
 
-## 1. Build artifacts
+---
+
+## Steps
+### 1. Build artifacts
 
 ```bash
 python scripts/train.py
@@ -14,7 +18,7 @@ python scripts/train.py
 
 Both frameworks → `artifacts/iris-sk/`, `artifacts/iris-xgb/`.
 
-## 2. Deploy
+### 2 Deploy
 
 Logs the model, generates the server, builds, pushes, deploys, smoke-tests.
 
@@ -27,24 +31,39 @@ Logs the model, generates the server, builds, pushes, deploys, smoke-tests.
 | sklearn | MLServer | `notebooks/iris_sklearn_mlserver.ipynb` |
 | xgboost | MLServer | `notebooks/iris_xgboost_mlserver.ipynb` |
 
-Triton needs the 3.12 interpreter — the control plane rejects models logged from
+- Triton needs the 3.12 interpreter — the control plane rejects models logged from
 Python > 3.12. MLServer needs `mlserver build` instead of `docker build`, so it has no
-script path.
+script path
+- `--workers N` is the FastAPI answer to MLServer's `parallel_workers`, it becomes
+`uvicorn --workers N`. Defaults are `--workers 1 --cpu 0.5 --memory 1000`
+- a `--workers N` run is its own service `<name>-fastapi-Nw-svc`, so it can be
+load-tested next to the 1-worker one — give both the same `--cpu` or the comparison
+means nothing
 
-## 3. Load test
+```bash
+python scripts/deploy.py --artifact artifacts/iris-sk --runtime fastapi --cpu 2
+python scripts/deploy.py --artifact artifacts/iris-sk --runtime fastapi --cpu 2 --workers 4
+```
 
-| | | |
-| --- | --- | --- |
-| sklearn | FastAPI | `python scripts/loadtest.py --artifact artifacts/iris-sk --runtime fastapi -u 20 -t 60s` |
-| xgboost | FastAPI | `python scripts/loadtest.py --artifact artifacts/iris-xgb --runtime fastapi -u 20 -t 60s` |
-| sklearn | Triton | `python scripts/loadtest.py --artifact artifacts/iris-sk --runtime triton -u 20 -t 60s` |
-| xgboost | Triton | `python scripts/loadtest.py --artifact artifacts/iris-xgb --runtime triton -u 20 -t 60s` |
+### 3 Load test
 
-`--web` for the locust UI. CSVs in `loadtest-results/`.
+One command per framework, every deployed runtime, p50 / p99 / success rate side by side
 
-## 4. Teardown
+| | |
+| --- | --- |
+| sklearn | `python scripts/loadtest.py --artifact artifacts/iris-sk` |
+| xgboost | `python scripts/loadtest.py --artifact artifacts/iris-xgb` |
 
-Service only — model versions and images stay.
+- rows come from `deployed-*.json`, so a `--workers 4` service shows up as its own
+`fastapi-4w` row next to `fastapi`
+- defaults `-u 20 -t 60s`, add `--only triton` for just one, CSVs in `loadtest-results/`
+- to find the breaking point raise users until `ok %` drops — `-u 100`, `-u 300`, `-u 1000` — but expect all three to fail together: they share 1 replica at 0.5 CPU, and Triton's edge is dynamic batching and GPU, neither of which a 4-feature iris model on CPU uses
+- `wait_time = constant_throughput(1)` in `locustfile.py` caps each user at 1 rps, so users ≈ rps; delete that line for a true throughput ceiling
+
+### (4. Teardown)
+
+- tear down: Service
+- leave: model in ML Registry and docker images 
 
 | | | |
 | --- | --- | --- |
@@ -53,27 +72,64 @@ Service only — model versions and images stay.
 | sklearn | Triton | `python scripts/teardown.py --artifact artifacts/iris-sk --runtime triton` |
 | xgboost | Triton | `python scripts/teardown.py --artifact artifacts/iris-xgb --runtime triton` |
 
-## Files
+- `--runtime` here is the variant, so a 4-worker service is `--runtime fastapi-4w`. A
+wrong one lists what is deployed
+
+---
+
+## Overrides
+
+Only for **xgboost**, which needs devtest until live-demo picks up [#1196](https://github.com/truefoundry/mlfoundry-server/pull/1196). sklearn stays on live-demo with no flags
+
+Log in first, `deploy.py` refuses if the logged-in host does not match
+
+```bash
+tfy login --host https://internal.devtest.truefoundry.tech --relogin
+```
+
+```bash
+python scripts/deploy.py --artifact artifacts/iris-xgb --runtime fastapi \
+  --tfy-host https://internal.devtest.truefoundry.tech \
+  --ml-repo default \
+  --ws-fqn tfy-usea1-devtest:seldon-tf \
+  --domain tfy-usea1-ctl.devtest.truefoundry.tech
+```
+
+```bash
+~/work/.venvs/tfy-triton-py312/bin/python scripts/deploy.py --artifact artifacts/iris-xgb --runtime triton \
+  --tfy-host https://internal.devtest.truefoundry.tech \
+  --ml-repo default \
+  --ws-fqn tfy-usea1-devtest:seldon-tf \
+  --domain tfy-usea1-ctl.devtest.truefoundry.tech
+```
+
+- pass all four together, they are not independent, and `--docker-user` as well if the image does not go to `mkozubal`
+- `loadtest.py` and `teardown.py` take no overrides, they read the tenant back from `deployed-<variant>.json`
+- notebooks have no overrides, edit cell 4 and log in to the matching host
+- the login is global, so a sklearn notebook run after this fails with `ML Repo cx-team not found` until you log back in to live-demo
+
+---
+
+## Info
+
+- Triton: Python ≤ 3.12 only. Cold start is 60–90s of silent logs, then `Serving model with Triton` 
+- Triton `/v2/health/ready` not actual → poll `/v2/models/<name>/ready`
+- `tfy` not on kernel PATH → `!{sys.executable} -m truefoundry.cli ...`
+- schema inference needs a typed numpy array, not a list of lists
+- XGBoost: `predict` only; needs [mlfoundry-server#1196](https://github.com/truefoundry/mlfoundry-server/pull/1196)
+- payloads: FastAPI `{"input_0":[[...]]}` · Triton nested `data`, `input_0` · MLServer flat `data`, `predict`
+- MLServer concurrency carries over: `parallel_workers` → `--workers`, adaptive batching →
+Triton dynamic batching, more capacity → replicas and autoscaling. The generated `predict`
+is sync, so FastAPI already threadpools it and sklearn/XGBoost release the GIL in C
+- image tag = model version, so it bumps every run. Reusing a tag does not work: a node that already pulled it never pulls again (non-`latest` = `IfNotPresent`) and keeps serving the old build. Notebooks pin `:1`, so bump theirs by hand after a rebuild
+
+### Files
 
 | | |
 | --- | --- |
 | `train.py` · `deploy.py` · `loadtest.py` · `teardown.py` | steps 1–4. Tenant constants live in `deploy.py` |
 | `locustfile.py` | load profile, loaded by `locust -f` |
-| `artifacts/<name>/deployed-<runtime>.json` | written by step 2, read by steps 3–4 |
+| `artifacts/<name>/deployed-<variant>.json` | written by step 2, read by steps 3–4. One per live service |
 | `notebooks/` | same flow, one per framework × runtime, including MLServer |
 
-Framework is named once, in `meta.json`. Nothing after that branches on it.
-
-## Gotchas
-
-- Triton: Python ≤ 3.12 only. Cold start is 60–90s of silent logs, then `Serving model with Triton` — not a hang
-- Triton `/v2/health/ready` lies → poll `/v2/models/<name>/ready`
-- `tfy` not on kernel PATH → `!{sys.executable} -m truefoundry.cli ...`
-- `!` swallows exits → `assert _exit_code == 0`
-- schema inference needs a typed numpy array, not a list of lists
-- XGBoost: `predict` only; needs [mlfoundry-server#1196](https://github.com/truefoundry/mlfoundry-server/pull/1196)
-- payloads: FastAPI `{"input_0":[[...]]}` · Triton nested `data`, `input_0` · MLServer flat `data`, `predict`
-- UI can show `Error` + 0 pods while the service serves 200s — `activeVersion` stuck at 0, rollout never marked terminal. Data plane is right
-- tag is always `1` and is overwritten in place, so nothing needs deleting first. But a node that already pulled `:1` won't re-pull — use `--tag 2` if you must know which build answered
-- deleting a service 409s if a rollout never finished — cancel `last_deployment_id`, not `.deployment.id`
-- notebook cleanup cells are **live** — they delete the service
+- framework is named once, in `meta.json`. Nothing after that branches on it
