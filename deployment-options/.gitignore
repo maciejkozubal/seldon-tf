@@ -1,0 +1,4 @@
+.env
+1_train/
+serving/model/
+__pycache__/

@@ -1,0 +1,8 @@
+# for the numbered scripts, not for the image
+truefoundry
+python-dotenv
+scikit-learn
+joblib
+numpy
+requests
+azure-storage-blob   # 2a2 only
