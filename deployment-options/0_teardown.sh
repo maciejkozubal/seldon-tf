@@ -45,8 +45,28 @@ git -C "$GIT_LOCAL" commit -qm "teardown: drop generated serving folders" 2>/dev
 git -C "$GIT_LOCAL" -c credential.helper='!gh auth git-credential' \
     push -q "$GIT_REPO_URL" "HEAD:$GIT_BRANCH" && echo "   pushed"
 
+echo "5. model versions + blob:"
+python3 _cleanup.py
+
+echo "6. Docker Hub:"
+if [ -n "${DOCKERHUB_USER:-}" ] && [ -n "${DOCKERHUB_TOKEN:-}" ]; then
+    JWT=$(curl -sf -X POST https://hub.docker.com/v2/users/login \
+        -H "Content-Type: application/json" \
+        -d "{\"username\":\"$DOCKERHUB_USER\",\"password\":\"$DOCKERHUB_TOKEN\"}" \
+        | python3 -c "import sys,json;print(json.load(sys.stdin)['token'])")
+    for r in "${IMAGE_BASE#*/}-without-model" "${IMAGE_BASE#*/}-with-model"; do
+        if curl -sf -X DELETE -H "Authorization: JWT $JWT" \
+                "https://hub.docker.com/v2/repositories/$DOCKERHUB_USER/$r/" >/dev/null; then
+            echo "   deleted  $DOCKERHUB_USER/$r"
+        else
+            echo "   skipped  $DOCKERHUB_USER/$r"
+        fi
+    done
+else
+    echo "   skipped: set DOCKERHUB_USER and DOCKERHUB_TOKEN in .env"
+fi
+
 echo
-echo "left behind on purpose:"
-echo "   model versions in the registry and the blob under SRC_PREFIX"
-echo "   Docker Hub tags ($IMAGE_BASE-*), delete them in the Docker Hub UI"
-echo "   ECR repos on the cluster, which is why rebuilds hit the immutable-tag error"
+echo "left behind, not deletable from here:"
+echo "   ECR repos in TrueFoundry's AWS account, which is why a rebuild of a"
+echo "   previously-used service name hits the immutable-tag error."
