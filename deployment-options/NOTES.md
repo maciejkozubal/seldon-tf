@@ -58,7 +58,7 @@ Working notes behind the scripts. `README.md` is how to run them.
   with `{model_version_fqn, workspace_fqn, service_name, model_server}` and unzips the
   response. So SDK and REST can both generate `server.py`; the SDK method is private
   (leading underscore), and REST needs the unzip done by hand.
-- **`3.2_generate_serving.sh`** needs a schema, so it only works off 2.2.1. Untested.
+- **`3_generate_serving.sh`** needs a schema, so it only works off 2.2.1. Untested.
 - **Secrets.** The Azure key lives in `.env` and has been pasted into chat; rotate it.
 
 ## Open

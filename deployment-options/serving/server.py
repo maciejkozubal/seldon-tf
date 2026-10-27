@@ -2,6 +2,7 @@ from contextlib import asynccontextmanager
 from typing import List
 from fastapi import FastAPI
 import numpy as np
+import pandas as pd
 from pydantic import BaseModel, Field
 import logging
 import os
@@ -21,7 +22,6 @@ class ModelInput(BaseModel):
 def load_model():
     import joblib
 
-    # 2A sets MODEL_PATH at runtime; 2B falls back to the baked-in folder
     return joblib.load(os.path.join(os.getenv("MODEL_PATH", "model"), "model.joblib"))
 
 
